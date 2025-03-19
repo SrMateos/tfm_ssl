@@ -1,27 +1,31 @@
 from pathlib import Path
 from constants import PATCH_SIZE
-from monai.config import print_config
-from monai.transforms import (Compose, LoadImaged, RandCropByPosNegLabeld, ToTensord)
+from monai.transforms import (Compose, LoadImaged, RandCropByPosNegLabeld, ToTensord, SpatialPadd)
 
-def get_data_paths(data_path):
+def get_data_paths(data_path, debug=False):
     if not data_path.exists():
         raise FileNotFoundError(f'Path {data_path} does not exist.')
 
-    mris_paths, cts_paths, masks_paths = [], [], []
+    cbcts_paths, cts_paths, masks_paths = [], [], []
 
-    for subdirectory in data_path.iterdir():
+    subdirs = sorted([d for d in data_path.iterdir() if d.is_dir()])
+
+    for i, subdirectory in enumerate(subdirs):
         if "overview" in str(subdirectory):
             continue
+        if debug and i > 5:
+            break
 
-        mris_paths.append(str(Path(subdirectory / "mr.nii.gz")))
+        cbcts_paths.append(str(Path(subdirectory / "cbct.nii.gz")))
         cts_paths.append(str(Path(subdirectory / "ct.nii.gz")))
         masks_paths.append(str(Path(subdirectory / "mask.nii.gz")))
 
-    return mris_paths, cts_paths, masks_paths
+    return cbcts_paths, cts_paths, masks_paths
 
-def get_transforms():
+def get_train_transforms():
     return Compose([
         LoadImaged(keys=("image", "label"), image_only=True, ensure_channel_first=True),
+        SpatialPadd(keys=("image", "label"), method="symmetric", spatial_size=PATCH_SIZE),
         RandCropByPosNegLabeld(
             keys=("image", "label"),
             label_key="label",
@@ -33,3 +37,9 @@ def get_transforms():
         ToTensord(keys=["image", "label"])
     ])
 
+def get_val_transforms():
+    return Compose([
+        LoadImaged(keys=("image", "label"), image_only=True, ensure_channel_first=True),
+        SpatialPadd(keys=("image", "label"), method="symmetric", spatial_size=PATCH_SIZE),
+        ToTensord(keys=["image", "label"])
+    ])

@@ -1,2 +1,6 @@
-data/*
-runs/*
+data
+runs
+__pycache__
+__pycache__/*
+*.pth
+*.png
