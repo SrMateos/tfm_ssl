@@ -1,0 +1,29 @@
+# Global settings
+debug: True
+
+# Model settings
+model:
+  architecture: "SwinUNETR"
+  pretrained: false
+  feature_size: 48
+  in_channels: 1
+  out_channels: 1
+
+# Training settings
+training:
+  epochs: 200
+  batch_size: 1
+  learning_rate: 1e-4
+
+# Data settings
+data:
+  patch_size: [64, 64, 64]
+  train_val_split: 0.8
+  task1: false
+
+# Inference settings
+inference:
+  sw_batch_size: 1
+  overlap: 0.5
+  mode: "gaussian"
+

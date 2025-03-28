@@ -1,38 +1,47 @@
 import time
+from configparser import ConfigParser
 
-import torch
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-from zipp import Path
-
-from utils.utils import get_data_paths, get_train_transforms, get_val_transforms
-from constants import DATA_PATH, PATCH_SIZE, DEBUG
-
-from monai.networks.nets import SwinUNETR
-from torch.nn import L1Loss
-from monai.utils import set_determinism
-from monai.networks.nets import ViTAutoEnc
-from monai.losses import ContrastiveLoss
+import torch
+from flask import Config
 from monai.data import DataLoader, Dataset
 from monai.inferers import sliding_window_inference
+from monai.losses import ContrastiveLoss
+from monai.networks.nets import SwinUNETR
+from monai.utils import set_determinism
+from torch.nn import L1Loss
+from tqdm import tqdm
 
+from config import config_parser
+from constants import DATA_PATH, PATCH_SIZE
+from utils.utils import (get_data_paths, get_train_transforms,
+                         get_val_transforms)
 
 set_determinism(42)
 
 def main():
-    image_paths, _, masks_paths = get_data_paths(DATA_PATH, debug=DEBUG)
+    # Config
+    config_p = config_parser.ConfigParser()
+    config = config_p.parse()
 
+    # Load data
+    image_paths, _, masks_paths = get_data_paths(DATA_PATH, debug=config["debug"])
     data = [{"image": img, "label": label} for img, label in zip(image_paths, masks_paths)]
-    train_data_split = int(len(data)*0.8)
+
+    # Train
+    train_data_split = int(len(data) * 0.8)
+    batch_size = config["training"]["batch"] if config["training"]["batch"] else 1
+
     train_data = data[:train_data_split]
     train_ds = Dataset(data=train_data, transform=get_train_transforms())
-    train_loader = DataLoader(train_ds, batch_size=1, shuffle=True)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 
+    # Validation
     val_data = data[train_data_split:]
     val_ds = Dataset(data=val_data, transform=get_val_transforms())
-    val_loader = DataLoader(val_ds, batch_size=1, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=True)
 
-    # Train objects
+    # Model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SwinUNETR(
         img_size=PATCH_SIZE,
@@ -41,11 +50,13 @@ def main():
         feature_size=48
     ).to(device)
 
+    # Losses
     recon_loss = L1Loss()
     contrastive_loss = ContrastiveLoss(temperature=0.05)
 
-    optimizer = torch.optim.Adam(model.parameters(), 1e-4)
-    num_epochs = 2
+    # Optimizer
+    optimizer = torch.optim.Adam(model.parameters(), config["training"]["learning_rate"])
+    num_epochs = config["training"]["num_epochs"] if config["num_epochs"] else 10
     losses = []
     writer = torch.utils.tensorboard.SummaryWriter()
 

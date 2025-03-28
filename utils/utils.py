@@ -1,6 +1,11 @@
+import time
 from pathlib import Path
+
+from monai.transforms import (Compose, LoadImaged, RandCropByPosNegLabeld,
+                              SpatialPadd, ToTensord)
+
 from constants import PATCH_SIZE, TASK1
-from monai.transforms import (Compose, LoadImaged, RandCropByPosNegLabeld, ToTensord, SpatialPadd)
+
 
 def get_data_paths(data_path, debug=False):
     if not data_path.exists():
@@ -45,3 +50,13 @@ def get_val_transforms():
         SpatialPadd(keys=("image", "label"), method="symmetric", spatial_size=PATCH_SIZE),
         ToTensord(keys=["image", "label"])
     ])
+
+def timer(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        hours, minutes, seconds = map(int, time.gmtime(end_time - start_time))
+        print(f"Function '{func.__name__}' took {hours}h {minutes}m {seconds}s")
+        return result
+    return wrapper
