@@ -1,12 +1,12 @@
 from pathlib import Path
-from constants import PATCH_SIZE
+from constants import PATCH_SIZE, TASK1
 from monai.transforms import (Compose, LoadImaged, RandCropByPosNegLabeld, ToTensord, SpatialPadd)
 
 def get_data_paths(data_path, debug=False):
     if not data_path.exists():
         raise FileNotFoundError(f'Path {data_path} does not exist.')
 
-    cbcts_paths, cts_paths, masks_paths = [], [], []
+    image_paths, cts_paths, masks_paths = [], [], []
 
     subdirs = sorted([d for d in data_path.iterdir() if d.is_dir()])
 
@@ -16,11 +16,13 @@ def get_data_paths(data_path, debug=False):
         if debug and i > 5:
             break
 
-        cbcts_paths.append(str(Path(subdirectory / "cbct.nii.gz")))
-        cts_paths.append(str(Path(subdirectory / "ct.nii.gz")))
-        masks_paths.append(str(Path(subdirectory / "mask.nii.gz")))
+        image_name = "mr.mha" if TASK1 else "cbct.mha"
 
-    return cbcts_paths, cts_paths, masks_paths
+        image_paths.append(str(Path(subdirectory / image_name)))
+        cts_paths.append(str(Path(subdirectory / "ct.mha")))
+        masks_paths.append(str(Path(subdirectory / "mask.mha")))
+
+    return image_paths, cts_paths, masks_paths
 
 def get_train_transforms():
     return Compose([

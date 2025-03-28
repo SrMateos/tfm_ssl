@@ -6,7 +6,7 @@ from tqdm import tqdm
 from zipp import Path
 
 from utils.utils import get_data_paths, get_train_transforms, get_val_transforms
-from constants import DATA_PATH_TASK1_PELVIS, PATCH_SIZE, DEBUG
+from constants import DATA_PATH, PATCH_SIZE, DEBUG
 
 from monai.networks.nets import SwinUNETR
 from torch.nn import L1Loss
@@ -20,9 +20,9 @@ from monai.inferers import sliding_window_inference
 set_determinism(42)
 
 def main():
-    cbcts_paths, _, masks_paths = get_data_paths(DATA_PATH_TASK1_PELVIS, debug=DEBUG)
+    image_paths, _, masks_paths = get_data_paths(DATA_PATH, debug=DEBUG)
 
-    data = [{"image": img, "label": label} for img, label in zip(cbcts_paths, masks_paths)]
+    data = [{"image": img, "label": label} for img, label in zip(image_paths, masks_paths)]
     train_data_split = int(len(data)*0.8)
     train_data = data[:train_data_split]
     train_ds = Dataset(data=train_data, transform=get_train_transforms())

@@ -4,7 +4,7 @@ import torch.optim as optim
 from monai.networks.nets import SwinUNETR
 from monai.data import DataLoader, Dataset
 from utils.utils import get_data_paths, get_train_transforms, get_val_transforms
-from constants import (DATA_PATH_TASK1_PELVIS, PATCH_SIZE, OUTPUT_MODEL_PATH, DEBUG, MODEL_PATH)
+from constants import (DATA_PATH, PATCH_SIZE, OUTPUT_MODEL_PATH, DEBUG, MODEL_PATH)
 from tqdm import tqdm
 from monai.inferers import sliding_window_inference
 
@@ -12,11 +12,11 @@ def main():
     # Set reproducibility
     torch.manual_seed(42)
 
-    # Load data - now with CBCT as source images
-    cbcts_paths, cts_paths, _ = get_data_paths(DATA_PATH_TASK1_PELVIS, debug=DEBUG)
+    # Load images
+    image_paths, cts_paths, _ = get_data_paths(DATA_PATH, debug=DEBUG)
 
-    # Create dataset dictionary (CBCT as input, CT as target)
-    data = [{"image": img, "label": label} for img, label in zip(cbcts_paths, cts_paths)]
+    # Create dataset dictionary
+    data = [{"image": img, "label": label} for img, label in zip(image_paths, cts_paths)]
     train_data_split = int(len(data) * 0.8)
 
     # Split and create dataloaders
