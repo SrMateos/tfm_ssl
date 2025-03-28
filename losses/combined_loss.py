@@ -1,8 +1,9 @@
 import torch
-from torch.nn import L1Loss
 from monai.losses import SSIMLoss
+from torch.nn import L1Loss
 
-class CombinedLoss(torch.nn.module):
+
+class CombinedLoss(torch.nn.Module):
     def __init__(self, alpha=0.5, beta=0.5):
         super().__init__()
         self.l1 = L1Loss()
