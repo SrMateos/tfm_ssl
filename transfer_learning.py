@@ -1,16 +1,35 @@
+import os
+
+import matplotlib.pyplot as plt
+import mlflow
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from monai.networks.nets import SwinUNETR
 from monai.data import DataLoader, Dataset
-from utils.utils import get_data_paths, get_train_transforms, get_val_transforms
-from constants import (DATA_PATH, PATCH_SIZE, OUTPUT_MODEL_PATH, DEBUG, MODEL_PATH)
-from tqdm import tqdm
 from monai.inferers import sliding_window_inference
+from monai.networks.nets import SwinUNETR
+from tqdm import tqdm
+
+from config import ConfigParser
+from constants import (DATA_PATH, DEBUG, MODEL_PATH, OUTPUT_MODEL_PATH,
+                       PATCH_SIZE)
+from utils.mlflow_utils import log_config, setup_mlflow
+from utils.utils import (get_data_paths, get_train_transforms,
+                         get_val_transforms)
+
 
 def main():
+    # Config
+    config_parser = ConfigParser()
+    config = config_parser.parse()
+
+    # Setup MLFlow
+    run = setup_mlflow(config, experiment_name="Transfer_Learning")
+    log_config(config)
+
     # Set reproducibility
     torch.manual_seed(42)
+    mlflow.log_param("random_seed", 42)
 
     # Load images
     image_paths, cts_paths, _ = get_data_paths(DATA_PATH, debug=DEBUG)
@@ -18,6 +37,9 @@ def main():
     # Create dataset dictionary
     data = [{"image": img, "label": label} for img, label in zip(image_paths, cts_paths)]
     train_data_split = int(len(data) * 0.8)
+
+    mlflow.log_param("dataset_size", len(data))
+    mlflow.log_param("train_split", train_data_split)
 
     # Split and create dataloaders
     train_data = data[:train_data_split]
@@ -30,6 +52,7 @@ def main():
 
     # Set up device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    mlflow.log_param("device", device.type)
 
    # Load pretrained model
     model = SwinUNETR(
@@ -39,6 +62,10 @@ def main():
         feature_size=48
     ).to(device)
 
+    # Log model info
+    mlflow.log_param("model_name", "SwinUNETR")
+    mlflow.log_param("pretrained_model_path", str(MODEL_PATH))
+
     # Load weights from self-supervised training
     model.load_state_dict(torch.load(MODEL_PATH))
 
@@ -46,18 +73,19 @@ def main():
     for param in model.swinViT.parameters():
         param.requires_grad = False
 
+    mlflow.log_param("encoder_frozen", True)
+
     criterion = nn.L1Loss()
-
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-
-    # Setup TensorBoard
-    writer = torch.utils.tensorboard.SummaryWriter()
+    mlflow.log_param("learning_rate", 1e-4)
 
     # Training variables
     num_epochs = 2
     best_val_loss = float('inf')
     train_losses = []
     val_losses = []
+
+    mlflow.log_param("num_epochs", num_epochs)
 
     # Training loop
     for epoch in range(num_epochs):
@@ -119,19 +147,41 @@ def main():
         avg_val_loss = val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
 
-        # Log to TensorBoard
-        writer.add_scalar('Loss/train', avg_train_loss, epoch)
-        writer.add_scalar('Loss/validation', avg_val_loss, epoch)
+        # Log to MLFlow
+        mlflow.log_metrics({
+            "train_loss": avg_train_loss,
+            "val_loss": avg_val_loss
+        }, step=epoch)
 
         # Save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), OUTPUT_MODEL_PATH)
+            mlflow.log_artifact(OUTPUT_MODEL_PATH.name, "models")
+            mlflow.log_metric("best_val_loss", best_val_loss)
             print(f"✅ Epoch {epoch+1}: New best model saved with validation loss: {best_val_loss:.4f}")
+
+        # Save intermediate model
+        if (epoch + 1) % 10 == 0:
+            checkpoint_path = f"checkpoints/transfer_epoch_{epoch+1}.pth"
+            os.makedirs("checkpoints", exist_ok=True)
+            torch.save(model.state_dict(), checkpoint_path)
+            mlflow.log_artifact(checkpoint_path)
 
         # Print epoch summary
         print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
 
+    # Create and save the loss plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, num_epochs+1), train_losses, label='Train Loss')
+    plt.plot(range(1, num_epochs+1), val_losses, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    loss_plot_path = "transfer_learning_loss.png"
+    plt.savefig(loss_plot_path)
+    mlflow.log_artifact(loss_plot_path)
 
     print(f"Training completed. Best model saved with validation loss: {best_val_loss:.4f}")
 

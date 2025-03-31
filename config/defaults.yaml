@@ -27,3 +27,12 @@ inference:
   overlap: 0.5
   mode: "gaussian"
 
+# MLFlow settings
+mlflow:
+  tracking_uri: "file:./mlruns"  # Local storage, change to remote server if needed
+  register_model: true
+  log_images: true
+  tags:
+    project: "medical_translation"
+    data_version: "v1"
+
