@@ -6,3 +6,5 @@ __pycache__/*
 *.png
 .vscode/
 mlruns/
+.venv/
+checkpoints/
