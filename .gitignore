@@ -8,3 +8,4 @@ __pycache__/*
 mlruns/
 .venv/
 checkpoints/
+notebook_outputs/*.pth
