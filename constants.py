@@ -41,5 +41,9 @@ PATCH_SIZE = (64,) * 3
 MODEL_PATH = Path("ssl_model.pth")
 OUTPUT_MODEL_PATH = Path("cbct_to_ct_model.pth")
 
+# A broad range for different organ types https://radiopaedia.org/articles/windowing-ct
+A_MIN_HU = -1350
+A_MAX_HU = 2700
+
 
 
