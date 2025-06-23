@@ -7,7 +7,8 @@ from monai.transforms import (Compose, CropForegroundd, LoadImaged,
                               RandAdjustContrastd, RandAffined,
                               RandCropByPosNegLabeld, RandFlipd,
                               RandGaussianNoised, RandSpatialCropd,
-                              ScaleIntensityRanged, SpatialPadd, ToTensord)
+                              ScaleIntensityRanged, SpatialPadd, ToTensord,
+                              EnsureTyped)
 
 from constants import A_MAX_HU, A_MIN_HU
 
@@ -44,14 +45,16 @@ def get_data_paths(data_paths, task1=True, debug=False):
 
 def get_vae_train_transforms(patch_size=(64,)*3):
     return Compose([
-        LoadImaged(keys=("image", "mask"), image_only=True, ensure_channel_first=True),
-        # CropForegroundd(
-        #     keys=("image", "mask"),
-        #     source_key="mask",
-        # ),
+        LoadImaged(keys=("image"), image_only=True, ensure_channel_first=True),
+        SpatialPadd(keys=("image"), method="symmetric", spatial_size=patch_size),
         ScaleIntensityRanged(
             keys=("image"), a_min=A_MIN_HU, a_max=A_MAX_HU, # A broad range for different organ types https://radiopaedia.org/articles/windowing-ct
             b_min=0.0, b_max=1.0, clip=True
+        ),
+        RandSpatialCropd(
+            keys=("image"),
+            roi_size=patch_size,
+            random_size=False,
         ),
         RandFlipd(keys="image", prob=0.2, spatial_axis=0),
         RandFlipd(keys="image", prob=0.2, spatial_axis=1),
@@ -66,23 +69,12 @@ def get_vae_train_transforms(patch_size=(64,)*3):
         ),
         RandAdjustContrastd(keys="image", prob=0.2, gamma=(0.7, 1.3)),
         RandGaussianNoised(keys="image", prob=0.2, mean=0.0, std=0.05 * (1.0 - 0.0)), # Ajustar std al rango normalizado
-        RandSpatialCropd(
-            keys="image",
-            roi_size=patch_size,
-            random_size=False,
-        ),
-        SpatialPadd(keys=("image"), method="symmetric", spatial_size=patch_size),
+        EnsureTyped(keys="image", dtype=np.float32),
     ])
 
 def get_vae_val_transforms(patch_size=(64,)*3):
     return Compose([
-        LoadImaged(keys=("image", "mask"), image_only=True, ensure_channel_first=True),
-        CropForegroundd(
-            keys=("image", "mask"),
-            source_key="mask",
-            select_fn=lambda x: x > 0,
-            margin=10
-        ),
+        LoadImaged(keys=("image"), image_only=True, ensure_channel_first=True),
         ScaleIntensityRanged(
             keys=("image"), a_min=A_MIN_HU, a_max=A_MAX_HU, # A broad range for different organ types https://radiopaedia.org/articles/windowing-ct
             b_min=0.0, b_max=1.0, clip=True

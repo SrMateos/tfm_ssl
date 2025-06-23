@@ -14,7 +14,7 @@ from torch.nn import L1Loss
 from tqdm import tqdm
 
 from config import ConfigParser
-from constants import TASK1_HN
+from constants import ALL_TASK1, TASK1_HN
 from utils.mlflow_utils import log_config, setup_mlflow
 from utils.utils import (get_data_paths, get_vae_train_transforms,
                          get_vae_val_transforms)
@@ -22,13 +22,161 @@ from utils.utils import (get_data_paths, get_vae_train_transforms,
 set_determinism(42)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 def kl_loss(z_mu, z_sigma):
     '''
         kl_loss = 0.5 * sum(z_mu^2 + z_sigma^2 - log(z_sigma^2) - 1)
     '''
-    klloss = 0.5 * torch.sum(z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1, dim=list(range(1, len(z_mu.shape)))) # More general dim sum
-    return torch.sum(klloss) / klloss.shape[0]
+    kl_loss = 0.5 * torch.sum(
+        z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1,
+        dim=list(range(1, len(z_sigma.shape))),
+    )
+    return torch.sum(kl_loss) / kl_loss.shape[0]
+
+
+def train_generator_step(autoencoder, discriminator, images, l1_loss, kl_loss_fn, loss_perceptual, adv_loss,
+                        optimizer_g, kl_weight, perceptual_weight, adv_weight, epoch, warmup_epochs):
+    """Entrena el generador (autoencoder) por un paso"""
+    optimizer_g.zero_grad(set_to_none=True)
+
+    reconstruction, z_mu, z_sigma = autoencoder(images)
+
+    # Calculate individual losses for the generator
+    loss_recon = l1_loss(reconstruction, images)
+    loss_kl_val = kl_loss_fn(z_mu, z_sigma)
+    loss_perc = loss_perceptual(reconstruction.float(), images.float())
+
+    # Combine base losses
+    loss_g_base = loss_recon + kl_weight * loss_kl_val + perceptual_weight * loss_perc
+
+    # Add adversarial loss after warmup
+    loss_g_adv = 0.0
+    if epoch >= warmup_epochs:
+        logits_fake = discriminator(reconstruction.contiguous().float())[-1]
+        loss_g_adv = adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
+        loss_g = loss_g_base + adv_weight * loss_g_adv
+    else:
+        loss_g = loss_g_base
+
+    loss_g.backward()
+    optimizer_g.step()
+
+    return {
+        'total': loss_g.item(),
+        'reconstruction': loss_recon.item(),
+        'kl': loss_kl_val.item(),
+        'perceptual': loss_perc.item(),
+        'adversarial': loss_g_adv.item() if isinstance(loss_g_adv, torch.Tensor) else loss_g_adv,
+        'reconstruction_tensor': reconstruction  # Needed for discriminator training
+    }
+
+
+def train_discriminator_step(discriminator, reconstruction, images, adv_loss, optimizer_d,
+                           adv_weight, epoch, warmup_epochs):
+    """Entrena el discriminador por un paso"""
+    if epoch < warmup_epochs:
+        return {'total': 0.0, 'fake': 0.0, 'real': 0.0}
+
+    optimizer_d.zero_grad(set_to_none=True)
+
+    # Detach reconstruction to avoid backprop through generator
+    logits_fake = discriminator(reconstruction.contiguous().detach())[-1]
+    loss_d_fake = adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
+
+    logits_real = discriminator(images.contiguous().detach())[-1]
+    loss_d_real = adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+
+    discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
+    loss_d = adv_weight * discriminator_loss
+
+    loss_d.backward()
+    optimizer_d.step()
+
+    return {
+        'total': loss_d.item(),
+        'fake': loss_d_fake.item(),
+        'real': loss_d_real.item()
+    }
+
+
+def log_validation_images(val_images, val_outputs, epoch):
+    """Log example validation images to MLflow"""
+    img_slice = val_images[0, 0, :, :, val_images.shape[-1] // 2].cpu().numpy()
+    recon_slice = val_outputs[0, 0, :, :, val_outputs.shape[-1] // 2].cpu().numpy()
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    axes[0].imshow(img_slice, cmap='gray')
+    axes[0].set_title('Original Image Slice')
+    axes[0].axis('off')
+    axes[1].imshow(recon_slice, cmap='gray')
+    axes[1].set_title('Reconstruction Slice')
+    axes[1].axis('off')
+    plt.tight_layout()
+    mlflow.log_figure(fig, f"validation_image_epoch_{epoch+1}.png")
+    plt.close(fig)
+
+
+def validate_epoch(autoencoder, val_loader, l1_loss, patch_size, sw_batch_size, overlap, mode, device, config, epoch):
+    """Ejecuta validación para una época"""
+    autoencoder.eval()
+    val_step = 0
+    val_recon_loss = 0
+
+    val_bar = tqdm(total=len(val_loader), desc="Validation", unit="step", leave=False)
+
+    with torch.no_grad():
+        for val_batch in val_loader:
+            val_step += 1
+            val_images = val_batch["image"].to(device)
+            val_outputs = sliding_window_inference(
+                inputs=val_images,
+                roi_size=patch_size,
+                sw_batch_size=sw_batch_size,
+                predictor=autoencoder.reconstruct,
+                overlap=overlap,
+                mode=mode,
+                device=device,
+            )
+
+            # Calculate validation reconstruction loss
+            batch_recon_loss = l1_loss(val_outputs, val_images)
+            val_recon_loss += batch_recon_loss.item()
+
+            val_bar.update(1)
+
+    val_bar.close()
+
+    # Calculate average validation metrics
+    avg_val_recon_loss = val_recon_loss / val_step
+
+    # Log validation metrics to MLFlow
+    val_metrics = {
+        "val_recon_loss": avg_val_recon_loss,
+    }
+    mlflow.log_metrics(val_metrics, step=epoch)
+
+    # Print validation summary
+    tqdm.write(f"  Validation - Avg Recon Loss: {avg_val_recon_loss:.4f}")
+
+    # Log validation images if enabled
+    if config["mlflow"].get("log_images", False) and val_step > 0:
+        log_validation_images(val_images, val_outputs, epoch)
+
+    return avg_val_recon_loss
+
+
+def save_best_models(autoencoder, discriminator, best_val_metric, epoch):
+    """Guarda los mejores modelos"""
+    mlflow.log_metric("best_val_recon_loss_epoch", epoch)
+    mlflow.log_metric("best_val_recon_loss", best_val_metric)
+
+    # Save both models
+    best_autoencoder_path = "best_autoencoder_model.pth"
+    best_discriminator_path = "best_discriminator_model.pth"
+    torch.save(autoencoder.state_dict(), best_autoencoder_path)
+    torch.save(discriminator.state_dict(), best_discriminator_path)
+    mlflow.log_artifact(best_autoencoder_path, artifact_path="models")
+    mlflow.log_artifact(best_discriminator_path, artifact_path="models")
+    tqdm.write(f"New best model saved with validation recon loss: {best_val_metric:.4f}")
 
 
 def main():
@@ -51,9 +199,9 @@ def main():
     batch_size = config["training"].get("batch_size", 1)
     num_epochs = config["training"].get("epochs", 200)
     learning_rate = float(config["training"].get("learning_rate", 1e-4)) # Use learning rate from config
-    adv_weight = config["training"].get("adv_weight", 0.01)
-    perceptual_weight = config["training"].get("perceptual_weight", 0.001)
-    kl_weight = config["training"].get("kl_weight", 1e-6)
+    adv_weight = float(config["training"].get("adv_weight", 0.01))
+    perceptual_weight = float(config["training"].get("perceptual_weight", 0.001))
+    kl_weight = float(config["training"].get("kl_weight", 1e-3))
     autoencoder_warm_up_n_epochs = config["training"].get("warmup_epochs", 5) # Warmup epochs from config
     val_interval = config["training"].get("val_interval", 5) # Validation interval from config
     save_interval = config["training"].get("save_interval", 20) # Model save interval
@@ -87,20 +235,20 @@ def main():
     logging.info(f"Loading data from {TASK1_HN}...")
     # image_paths, labels_paths, masks_paths = get_data_paths(TASK1_HN, debug=debug_mode) # Use debug_mode from config
     # data = [{"image": img, "label": label, "mask": mask} for img, label, mask in zip(image_paths, labels_paths, masks_paths)]
-    _, cts_paths, masks_paths = get_data_paths(TASK1_HN, task1=task1, debug=debug_mode)
+    _, cts_paths, masks_paths = get_data_paths(ALL_TASK1, task1=task1, debug=debug_mode)
     data = [{"image": ct, "mask": mask} for ct, mask in zip(cts_paths, masks_paths)]
-    logging.info(f"First data sample: {data[0]}")    # Split data
+    logging.info(f"First data sample: {data[0]}")
     train_data_split = int(len(data) * train_val_split)
     train_data = data[:train_data_split]
     val_data = data[train_data_split:]
 
     # Train
     train_ds = CacheDataset(data=train_data, transform=get_vae_train_transforms(patch_size=patch_size))
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)#, collate_fn=pad_list_data_collate)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
 
     # Validation
     val_ds = CacheDataset(data=val_data, transform=get_vae_val_transforms(patch_size=patch_size))
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False) # , collate_fn=pad_list_data_collate)
+    val_loader = DataLoader(val_ds, batch_size=2, shuffle=False, num_workers=2, collate_fn=pad_list_data_collate)
 
     # Log dataset sizes
     mlflow.log_param("dataset_size", len(data))
@@ -123,6 +271,7 @@ def main():
         norm_num_groups  = model_config.get("norm_num_groups", 16),
         attention_levels = tuple(model_config.get("attention_levels", (False, False, True))),
     ).to(device)
+    #autoencoder.compile()
 
     # Use discriminator parameters from config or defaults
     discriminator_config = config.get("discriminator", {})
@@ -134,6 +283,7 @@ def main():
         out_channels = discriminator_config.get("out_channels", 1),
         norm         = discriminator_config.get("norm", "INSTANCE")
     ).to(device)
+    #discriminator.compile()
 
     # Log model architecture summary ( TODO: maybe logging as text artifact for full details)
     mlflow.log_param("autoencoder_name", "AutoencoderKL")
@@ -143,18 +293,20 @@ def main():
 
     # Losses
     l1_loss = L1Loss() # L1 loss for reconstruction
+    l1_loss.to(device)
     adv_loss = PatchAdversarialLoss(criterion="least_squares") # Adversarial loss
+    adv_loss.to(device)
     loss_perceptual = PerceptualLoss(
         spatial_dims  = 3,
-        network_type  = "squeeze",
+        network_type  = "radimagenet_resnet50",
         is_fake_3d    = True,
         fake_3d_ratio = 0.2
     ) # Perceptual loss
     loss_perceptual.to(device)
 
     # Optimizers - Use learning_rate from config
-    optimizer_g = torch.optim.Adam(params=autoencoder.parameters(), lr=learning_rate)
-    optimizer_d = torch.optim.Adam(params=discriminator.parameters(), lr=learning_rate)
+    optimizer_g = torch.optim.AdamW(params=autoencoder.parameters(), lr=learning_rate)
+    optimizer_d = torch.optim.AdamW(params=discriminator.parameters(), lr=learning_rate)
 
     # Training loop variables
     epoch_times = []
@@ -176,82 +328,43 @@ def main():
         epoch_adv_d_real_loss = 0
         step = 0
 
-        progress_bar = tqdm(total=len(train_loader), desc=f"Epoch {epoch + 1}/{num_epochs}", unit="step", leave=True)
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="step", leave=True)
 
-        for batch_data in train_loader:
+        for batch_data in progress_bar:
             step += 1
             images = batch_data["image"].to(device)
 
             # --- Train Generator (Autoencoder) ---
-            optimizer_g.zero_grad(set_to_none=True)
-
-            reconstruction, z_mu, z_sigma = autoencoder(images)
-
-            # Calculate individual losses for the generator
-            loss_recon = l1_loss(reconstruction, images)
-            loss_kl = kl_loss(z_mu, z_sigma)
-            loss_perc = loss_perceptual(reconstruction.float(), images.float())
-
-            # Combine base losses
-            loss_g_base = loss_recon + kl_weight * loss_kl + perceptual_weight * loss_perc
-
-            # Add adversarial loss after warmup
-            loss_g_adv = 0.0
-            if epoch >= autoencoder_warm_up_n_epochs:
-                logits_fake = discriminator(reconstruction.contiguous().float())[-1]
-                loss_g_adv = adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
-                loss_g = loss_g_base + adv_weight * loss_g_adv
-            else:
-                loss_g = loss_g_base
-
-            loss_g.backward()
-            optimizer_g.step()
-
-            # Accumulate generator losses for logging
-            epoch_g_loss += loss_g.item()
-            epoch_recon_loss += loss_recon.item()
-            epoch_kl_loss += loss_kl.item()
-            epoch_perceptual_loss += loss_perc.item()
-            if epoch >= autoencoder_warm_up_n_epochs:
-                 epoch_adv_g_loss += loss_g_adv.item() # Use .item()
+            g_losses = train_generator_step(
+                autoencoder, discriminator, images, l1_loss, kl_loss, loss_perceptual, adv_loss,
+                optimizer_g, kl_weight, perceptual_weight, adv_weight, epoch, autoencoder_warm_up_n_epochs
+            )
 
             # --- Train Discriminator ---
-            loss_d_final = 0.0
-            loss_d_fake_val = 0.0
-            loss_d_real_val = 0.0
-            if epoch >= autoencoder_warm_up_n_epochs:
-                optimizer_d.zero_grad(set_to_none=True)
+            d_losses = train_discriminator_step(
+                discriminator, g_losses['reconstruction_tensor'], images, adv_loss, optimizer_d,
+                adv_weight, epoch, autoencoder_warm_up_n_epochs
+            )
 
-                # Detach reconstruction to avoid backprop through generator
-                logits_fake = discriminator(reconstruction.contiguous().detach())[-1]
-                loss_d_fake = adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
-
-                logits_real = discriminator(images.contiguous().detach())[-1]
-                loss_d_real = adv_loss(logits_real, target_is_real=True, for_discriminator=True)
-
-                discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
-                loss_d = adv_weight * discriminator_loss
-
-                loss_d.backward()
-                optimizer_d.step()
-
-                loss_d_final = loss_d.item()
-                loss_d_fake_val = loss_d_fake.item()
-                loss_d_real_val = loss_d_real.item()
+            # Accumulate generator losses for logging
+            epoch_g_loss += g_losses['total']
+            epoch_recon_loss += g_losses['reconstruction']
+            epoch_kl_loss += g_losses['kl']
+            epoch_perceptual_loss += g_losses['perceptual']
+            epoch_adv_g_loss += g_losses['adversarial']
 
             # Accumulate discriminator losses for logging
-            epoch_d_loss += loss_d_final
-            epoch_adv_d_fake_loss += loss_d_fake_val
-            epoch_adv_d_real_loss += loss_d_real_val
+            epoch_d_loss += d_losses['total']
+            epoch_adv_d_fake_loss += d_losses['fake']
+            epoch_adv_d_real_loss += d_losses['real']
 
             # Update progress bar
             progress_bar.set_postfix({
-                "G_loss": f"{loss_g.item():.4f}",
-                "D_loss": f"{loss_d_final:.4f}",
-                "Recon": f"{loss_recon.item():.4f}",
-                "KL": f"{loss_kl.item():.4f}"
+                "G_loss": f"{g_losses['total']:.4f}",
+                "D_loss": f"{d_losses['total']:.4f}",
+                "Recon": f"{g_losses['reconstruction']:.4f}",
+                "KL": f"{g_losses['kl']:.4f}"
             })
-            progress_bar.update(1)
 
         # --- End of Epoch ---
         progress_bar.close()
@@ -289,76 +402,15 @@ def main():
 
         # --- Validation ---
         if (epoch + 1) % val_interval == 0:
-            autoencoder.eval()
-            val_step = 0
-            val_recon_loss = 0
+            avg_val_recon_loss = validate_epoch(
+                autoencoder, val_loader, l1_loss, patch_size, sw_batch_size,
+                overlap, mode, device, config, epoch
+            )
 
-            val_bar = tqdm(total=len(val_loader), desc="Validation", unit="step", leave=False)
-
-            with torch.no_grad():
-                for val_batch in val_loader:
-                    val_step += 1
-                    val_images = val_batch["image"].to(device)
-                    val_outputs = sliding_window_inference(
-                        inputs = val_images,
-                        roi_size = patch_size,
-                        sw_batch_size = sw_batch_size,
-                        predictor = autoencoder.reconstruct, # Use reconstruct method directly
-                        overlap = overlap,
-                        mode = mode,
-                        device = device,
-                    )
-
-                    # Calculate validation reconstruction loss
-                    batch_recon_loss = l1_loss(val_outputs, val_images)
-                    val_recon_loss += batch_recon_loss.item()
-
-                    val_bar.update(1)
-
-            val_bar.close()
-
-            # Calculate average validation metrics
-            avg_val_recon_loss = val_recon_loss / val_step
-
-            # Log validation metrics to MLFlow
-            val_metrics = {
-                "val_recon_loss": avg_val_recon_loss,
-            }
-            mlflow.log_metrics(val_metrics, step=epoch)
-
-            # Save best model based on validation reconstruction loss (lower is better)
-            current_val_metric = avg_val_recon_loss
-            if current_val_metric < best_val_metric:
-                best_val_metric = current_val_metric
-                mlflow.log_metric("best_val_recon_loss_epoch", epoch)
-                mlflow.log_metric("best_val_recon_loss", best_val_metric)
-
-                # Save both models
-                best_autoencoder_path = "best_autoencoder_model.pth"
-                best_discriminator_path = "best_discriminator_model.pth"
-                torch.save(autoencoder.state_dict(), best_autoencoder_path)
-                torch.save(discriminator.state_dict(), best_discriminator_path)
-                mlflow.log_artifact(best_autoencoder_path, artifact_path="models")
-                mlflow.log_artifact(best_discriminator_path, artifact_path="models")
-                tqdm.write(f"New best model saved with validation recon loss: {best_val_metric:.4f}")
-
-            # Log example validation images (optional, can be slow)
-            if config["mlflow"].get("log_images", False) and val_step > 0:
-                 # Log center slice of the first image in the last validation batch
-                img_slice = val_images[0, 0, :, :, val_images.shape[-1] // 2].cpu().numpy()
-                recon_slice = val_outputs[0, 0, :, :, val_outputs.shape[-1] // 2].cpu().numpy()
-
-                fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-                axes[0].imshow(img_slice, cmap='gray')
-                axes[0].set_title('Original Image Slice')
-                axes[0].axis('off')
-                axes[1].imshow(recon_slice, cmap='gray')
-                axes[1].set_title('Reconstruction Slice')
-                axes[1].axis('off')
-                plt.tight_layout()
-                mlflow.log_figure(fig, f"validation_image_epoch_{epoch+1}.png")
-                plt.close(fig)
-
+            # Save best model if needed
+            if avg_val_recon_loss < best_val_metric:
+                best_val_metric = avg_val_recon_loss
+                save_best_models(autoencoder, discriminator, best_val_metric, epoch)
 
         # Save model checkpoint periodically
         if (epoch + 1) % save_interval == 0:
