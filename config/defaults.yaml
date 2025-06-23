@@ -1,19 +1,18 @@
 # Global settings
 debug: False
-
-# Model settings
-#model:
-#  architecture: "SwinUNETR"
-#  pretrained: false
-#  feature_size: 48
-#  in_channels: 1
-#  out_channels: 1
+# debug: True
 
 # Training settings
 training:
-  epochs: 200
+  epochs: 300
   batch_size: 4
-  learning_rate: 1e-4
+  learning_rate: 1e-6
+  adv_weight: 1e-2
+  perceptual_weight: 1e-2
+  kl_weight: 5e-4
+  warmup_epochs: 5
+  val_interval: 5
+  save_interval: 20
 
 # Data settings
 data:
@@ -21,10 +20,11 @@ data:
   train_val_split: 0.8
   task1: True
 
+
 # Inference settings
 inference:
-  sw_batch_size: 1
-  overlap: 0.5
+  sw_batch_size: 2
+  overlap: 0.7
   mode: "gaussian"
 
 # MLFlow settings
