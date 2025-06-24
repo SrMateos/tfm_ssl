@@ -308,6 +308,15 @@ def main():
     optimizer_g = torch.optim.AdamW(params=autoencoder.parameters(), lr=learning_rate)
     optimizer_d = torch.optim.AdamW(params=discriminator.parameters(), lr=learning_rate)
 
+    # Reduce on plateau scheduler for the generator
+    scheduler_g = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_g, mode='min', factor=0.01, patience=7, min_lr=1e-7
+    )
+    # Reduce on plateau scheduler for the discriminator
+    scheduler_d = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer_d, mode='min', factor=0.001, patience=20, min_lr=1e-7
+    )
+
     # Training loop variables
     epoch_times = []
     best_val_metric = float('inf') # Using a metric (e.g., L1 loss) for best model saving

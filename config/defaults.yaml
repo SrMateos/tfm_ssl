@@ -6,7 +6,7 @@ debug: False
 training:
   epochs: 300
   batch_size: 4
-  learning_rate: 1e-6
+  learning_rate: 1e-3
   adv_weight: 1e-2
   perceptual_weight: 1e-2
   kl_weight: 5e-4
