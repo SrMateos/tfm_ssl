@@ -310,11 +310,12 @@ def main():
 
     # Reduce on plateau scheduler for the generator
     scheduler_g = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_g, mode='min', factor=0.01, patience=2, min_lr=1e-7
+        optimizer_g, mode='min', factor=0.2, patience=3, min_lr=1e-7, threshold=1e-2
     )
+
     # Reduce on plateau scheduler for the discriminator
     scheduler_d = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_d, mode='min', factor=0.001, patience=3, min_lr=1e-7
+        optimizer_d, mode='min', factor=0.5, patience=5, min_lr=1e-7
     )
 
     # Training loop variables
@@ -416,8 +417,8 @@ def main():
                 overlap, mode, device, config, epoch
             )
 
-            scheduler_d.step(avg_val_recon_loss)  # Update discriminator scheduler
             scheduler_g.step(avg_val_recon_loss)  # Update generator scheduler
+            scheduler_d.step(avg_epoch_d_loss)  # Update discriminator scheduler
 
             # Save best model if needed
             if avg_val_recon_loss < best_val_metric:
