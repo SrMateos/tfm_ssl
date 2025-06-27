@@ -5,11 +5,11 @@ debug: False
 # Training settings
 training:
   epochs: 300
-  batch_size: 4
+  batch_size: 8
   learning_rate: 1e-3
-  adv_weight: 1e-2
+  adv_weight: 1.0
   perceptual_weight: 1e-2
-  kl_weight: 5e-4
+  kl_weight: 1e-4
   warmup_epochs: 5
   val_interval: 5
   save_interval: 20
@@ -23,8 +23,8 @@ data:
 
 # Inference settings
 inference:
-  sw_batch_size: 2
-  overlap: 0.7
+  sw_batch_size: 4
+  overlap: 0.5
   mode: "gaussian"
 
 # MLFlow settings

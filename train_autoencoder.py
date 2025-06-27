@@ -24,14 +24,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def kl_loss(z_mu, z_sigma):
     '''
-        kl_loss = 0.5 * sum(z_mu^2 + z_sigma^2 - log(z_sigma^2) - 1)
+    kl_loss = 0.5 * sum(z_mu^2 + z_sigma^2 - log(z_sigma^2) - 1)
     '''
+    # Añadir un epsilon para estabilidad numérica
     kl_loss = 0.5 * torch.sum(
         z_mu.pow(2) + z_sigma.pow(2) - torch.log(z_sigma.pow(2)) - 1,
         dim=list(range(1, len(z_sigma.shape))),
     )
     return torch.sum(kl_loss) / kl_loss.shape[0]
-
 
 def train_generator_step(autoencoder, discriminator, images, l1_loss, kl_loss_fn, loss_perceptual, adv_loss,
                         optimizer_g, kl_weight, perceptual_weight, adv_weight, epoch, warmup_epochs):
@@ -79,7 +79,7 @@ def train_discriminator_step(discriminator, reconstruction, images, adv_loss, op
     optimizer_d.zero_grad(set_to_none=True)
 
     # Detach reconstruction to avoid backprop through generator
-    logits_fake = discriminator(reconstruction.contiguous().detach())[-1]
+    logits_fake = discriminator(reconstruction.contiguous().detach())[-1] #TODO: Mirar shape
     loss_d_fake = adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
 
     logits_real = discriminator(images.contiguous().detach())[-1]
@@ -114,7 +114,6 @@ def log_validation_images(val_images, val_outputs, epoch):
     mlflow.log_figure(fig, f"validation_image_epoch_{epoch+1}.png")
     plt.close(fig)
 
-
 def validate_epoch(autoencoder, val_loader, l1_loss, patch_size, sw_batch_size, overlap, mode, device, config, epoch):
     """Ejecuta validación para una época"""
     autoencoder.eval()
@@ -127,10 +126,11 @@ def validate_epoch(autoencoder, val_loader, l1_loss, patch_size, sw_batch_size, 
         for val_batch in val_loader:
             val_step += 1
             val_images = val_batch["image"].to(device)
+            #with torch.cuda.amp.autocast(enabled=(device.type == "cuda")):
             val_outputs = sliding_window_inference(
                 inputs=val_images,
                 roi_size=patch_size,
-                sw_batch_size=sw_batch_size,
+                sw_batch_size=1, #sw_batch_size,
                 predictor=autoencoder.reconstruct,
                 overlap=overlap,
                 mode=mode,
@@ -139,9 +139,9 @@ def validate_epoch(autoencoder, val_loader, l1_loss, patch_size, sw_batch_size, 
 
             # Calculate validation reconstruction loss
             batch_recon_loss = l1_loss(val_outputs, val_images)
-            val_recon_loss += batch_recon_loss.item()
+        val_recon_loss += batch_recon_loss.item()
 
-            val_bar.update(1)
+        val_bar.update(1)
 
     val_bar.close()
 
@@ -243,12 +243,12 @@ def main():
     val_data = data[train_data_split:]
 
     # Train
-    train_ds = CacheDataset(data=train_data, transform=get_vae_train_transforms(patch_size=patch_size))
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=2)
+    train_ds = CacheDataset(data=train_data, transform=get_vae_train_transforms(patch_size=patch_size), cache_rate=0.5)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
 
     # Validation
-    val_ds = CacheDataset(data=val_data, transform=get_vae_val_transforms(patch_size=patch_size))
-    val_loader = DataLoader(val_ds, batch_size=2, shuffle=False, num_workers=2, collate_fn=pad_list_data_collate)
+    val_ds = CacheDataset(data=val_data, transform=get_vae_val_transforms(patch_size=patch_size), cache_rate=0.4)
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False) #, collate_fn=pad_list_data_collate)
 
     # Log dataset sizes
     mlflow.log_param("dataset_size", len(data))
