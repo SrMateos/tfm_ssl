@@ -417,6 +417,12 @@ def main():
                 overlap, mode, device, config, epoch
             )
 
+            schedulers_lrs = {
+                "learning_rate_g": scheduler_g.get_last_lr()[0],
+                "learning_rate_d": scheduler_d.get_last_lr()[0]
+            }
+            mlflow.log_metrics(schedulers_lrs, step=epoch)
+
             scheduler_g.step(avg_val_recon_loss)  # Update generator scheduler
             scheduler_d.step(avg_epoch_d_loss)  # Update discriminator scheduler
 
