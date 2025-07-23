@@ -50,7 +50,7 @@ def train_generator_step(autoencoder, discriminator, images, l1_loss, kl_loss_fn
 
     # Add adversarial loss after warmup
     loss_g_adv = 0.0
-    if epoch >= warmup_epochs:
+    if epoch >= warmup_epochs == 0:
         logits_fake = discriminator(reconstruction.contiguous().float())[-1]
         loss_g_adv = adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
         loss_g = loss_g_base + adv_weight * loss_g_adv
@@ -130,7 +130,7 @@ def validate_epoch(autoencoder, val_loader, l1_loss, patch_size, sw_batch_size, 
             val_outputs = sliding_window_inference(
                 inputs=val_images,
                 roi_size=patch_size,
-                sw_batch_size=1, #sw_batch_size,
+                sw_batch_size=sw_batch_size,
                 predictor=autoencoder.reconstruct,
                 overlap=overlap,
                 mode=mode,
@@ -310,12 +310,7 @@ def main():
 
     # Reduce on plateau scheduler for the generator
     scheduler_g = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_g, mode='min', factor=0.2, patience=3, min_lr=1e-7, threshold=1e-2
-    )
-
-    # Reduce on plateau scheduler for the discriminator
-    scheduler_d = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer_d, mode='min', factor=0.5, patience=5, min_lr=1e-7
+        optimizer_g, mode='min', factor=0.1, patience=5, min_lr=1e-7, threshold=1e-3
     )
 
     # Training loop variables
@@ -373,6 +368,7 @@ def main():
                 "G_loss": f"{g_losses['total']:.4f}",
                 "D_loss": f"{d_losses['total']:.4f}",
                 "Recon": f"{g_losses['reconstruction']:.4f}",
+                "Perceptual": f"{g_losses['perceptual']:.4f}",
                 "KL": f"{g_losses['kl']:.4f}"
             })
 
@@ -412,19 +408,20 @@ def main():
 
         # --- Validation ---
         if (epoch + 1) % val_interval == 0:
+            val_epoch_start = time.time()
             avg_val_recon_loss = validate_epoch(
                 autoencoder, val_loader, l1_loss, patch_size, sw_batch_size,
                 overlap, mode, device, config, epoch
             )
 
+            val_epoch_time = time.time() - val_epoch_start
             schedulers_lrs = {
                 "learning_rate_g": scheduler_g.get_last_lr()[0],
-                "learning_rate_d": scheduler_d.get_last_lr()[0]
+                "val_epoch_time": val_epoch_time
             }
             mlflow.log_metrics(schedulers_lrs, step=epoch)
 
             scheduler_g.step(avg_val_recon_loss)  # Update generator scheduler
-            scheduler_d.step(avg_epoch_d_loss)  # Update discriminator scheduler
 
             # Save best model if needed
             if avg_val_recon_loss < best_val_metric:
