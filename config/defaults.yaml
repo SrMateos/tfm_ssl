@@ -1,25 +1,31 @@
 # Global settings
-debug: False
-# debug: True
+# debug: False
+debug: True
 
 # Training settings
 training:
-  epochs: 1000
-  batch_size: 8
+  epochs: 1
+  batch_size: 4
   learning_rate: 1e-3
-  adv_weight: 1e-2
+  pixel_wise_weight: 1
   perceptual_weight: 1e-4
-  kl_weight: 1e-5
+  ms_ssim_weight: 0.1
+  focal_frequency_weight: 1e-4
+  adv_weight: 1e-2
+  max_kl_weight: 1e-2
+  kl_annealing_cycles: 4
+  kl_annealing_ratio: 0.65
   warmup_epochs: 5
-  val_interval: 10
+  val_interval: 2
   save_interval: 20
 
 # Data settings
 data:
   patch_size: [64, 64, 64]
-  train_val_split: 0.8
+  train_split: 0.7
+  val_split: 0.15
+  test_split: 0.15
   task1: True
-
 
 # Inference settings
 inference:
@@ -31,6 +37,7 @@ inference:
 mlflow:
   tracking_uri: "file:./mlruns"  # Local storage, change to remote server if needed
   register_model: true
+  log_original_volume: True
   log_images: true
   tags:
     project: "medical_translation"
