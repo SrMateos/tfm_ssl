@@ -9,3 +9,4 @@ mlruns/
 .venv/
 checkpoints/
 notebook_outputs/*.pth
+cache/
