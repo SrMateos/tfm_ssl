@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import mlflow
 import mlflow.pytorch
 import torch
-from monai.data import CacheDataset, DataLoader
+from monai.data import PersistentDataset, DataLoader
 from monai.inferers import sliding_window_inference
 from monai.losses import PatchAdversarialLoss, PerceptualLoss, SSIMLoss
 from monai.visualize import matshow3d
@@ -144,22 +144,22 @@ class Trainer:
             f"Data split: {len(train_data)} train samples, {len(val_data)} validation samples"
         )
 
-        train_ds = CacheDataset(
+        train_ds = PersistentDataset(
             data=train_data,
             transform=get_vae_train_transforms(patch_size=self.patch_size),
-            cache_rate=0.2,
+            cache_dir="cache/train",
         )
 
-        val_ds = CacheDataset(
+        val_ds = PersistentDataset(
             data=val_data,
             transform=get_vae_val_transforms(patch_size=self.patch_size),
-            cache_rate=0.7,
+            cache_dir="cache/val",
         )
 
-        test_ds = CacheDataset(
+        test_ds = PersistentDataset(
             data=test_data,
             transform=get_vae_val_transforms(patch_size=self.patch_size),
-            cache_rate=0,
+            cache_dir="cache/test",
         )
 
         self.val_transforms = val_ds.transform
