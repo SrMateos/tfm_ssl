@@ -54,7 +54,10 @@ class Trainer:
         )
 
     def _setup_mlflow(self):
-        self.run = setup_mlflow(self.config, experiment_name= self.config["mlflow"].get("experiment_name", "SSL_Training"))
+        experiment_name = self.config["mlflow"].get("experiment_name", "SSL_Training")
+        print(f"Setting up MLflow experiment: {experiment_name}")
+
+        self.run = setup_mlflow(self.config, experiment_name=experiment_name)
         log_config(self.config)
         mlflow.log_param("device", self.device.type)
 

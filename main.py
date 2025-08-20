@@ -1,6 +1,4 @@
-import os
 from src.config import ConfigParser
-# Importa ambas clases
 from src.training.trainer import Trainer
 
 def main():
