@@ -251,6 +251,11 @@ class Trainer:
         self.optimizer_g.zero_grad(set_to_none=True)
         reconstruction, z_mu, z_sigma = self.autoencoder(images)
 
+        loss_ssim = 0.0
+        loss_recon = 0.0
+        loss_perc = 0.0
+        loss_focal = 0.0
+
         if self.ssim_weight > 0:
             reconstruction = reconstruction.clamp(0, 1)
             loss_ssim = self.ssim_loss(reconstruction, images)
@@ -293,14 +298,12 @@ class Trainer:
             "reconstruction_tensor": reconstruction,
         }
 
-        if self.pixel_wise_weight > 0:
-            ret_dictionary["pixel-wise"] = loss_recon.item()
-        if self.perceptual_weight > 0:
-            ret_dictionary["perceptual"] = loss_perc.item()
-        if self.ssim_weight > 0:
-            ret_dictionary["ssim"] = loss_ssim.item()
-        if self.focal_frequency_weight > 0:
-            ret_dictionary["focal_frequency"] = loss_focal.item()
+
+        ret_dictionary["pixel-wise"] = loss_recon.item() if self.pixel_wise_weight > 0 else 0.0
+        ret_dictionary["perceptual"] = loss_perc.item() if self.perceptual_weight > 0 else 0.0
+        ret_dictionary["ssim"] = loss_ssim.item() if self.ssim_weight > 0 else 0.0
+        ret_dictionary["focal_frequency"] = loss_focal.item() if self.focal_frequency_weight > 0 else 0.0
+        ret_dictionary["kl"] = kl_loss.item() if self.kl_weight > 0 else 0.0
 
         return ret_dictionary
 
