@@ -22,7 +22,7 @@ from tqdm import tqdm
 import numpy as np
 from zmq import EVENT_CLOSE_FAILED
 
-from src.constants import ALL_TASK1
+from src.constants import ALL_TASK1, ALL_TASKS
 from src.data_handling import (
     get_data_paths,
     get_vae_train_transforms,
@@ -41,8 +41,8 @@ class Trainer:
         self.config = config
         self.device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
         self.image_metrics = ImageMetrics()
-        # self.segmentation_metrics = SegmentationMetrics()
 
+        self._setup_logging()
         self._setup_mlflow()
         self._load_config_params()
 
@@ -54,7 +54,7 @@ class Trainer:
         )
 
     def _setup_mlflow(self):
-        self.run = setup_mlflow(self.config, experiment_name="SSL_Training")
+        self.run = setup_mlflow(self.config, experiment_name= self.config["mlflow"].get("experiment_name", "SSL_Training"))
         log_config(self.config)
         mlflow.log_param("device", self.device.type)
 
@@ -124,7 +124,7 @@ class Trainer:
     def _prepare_data(self):
         logging.info("Loading data...")
         _, cts_paths, masks_paths = get_data_paths(
-            ALL_TASK1, task1=self.task1, debug=self.debug_mode
+            ALL_TASKS, task1=self.task1, debug=self.debug_mode
         )
         data = [{"image": ct, "mask": mask} for ct, mask in zip(cts_paths, masks_paths)]
         logging.info(f"First data sample: {data[0]}")
