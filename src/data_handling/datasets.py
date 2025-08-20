@@ -5,6 +5,7 @@ This module contains functions for loading and managing datasets, including
 path resolution and data splitting utilities.
 """
 
+import logging
 from pathlib import Path
 from typing import List, Tuple, Union
 
@@ -31,6 +32,8 @@ def get_data_paths(
     if not isinstance(data_paths, list):
         data_paths = [data_paths]
 
+    print(f"Data paths: {data_paths}")
+
     image_paths, cts_paths, masks_paths = [], [], []
 
     for data_path_item in data_paths:
@@ -39,6 +42,7 @@ def get_data_paths(
             continue
 
         subdirs = sorted([d for d in data_path_item.iterdir() if d.is_dir()])
+        print(f"Len subdirs {len(subdirs)}")
 
         for i, subdirectory in enumerate(subdirs):
             if "overview" in str(subdirectory):
@@ -56,13 +60,15 @@ def get_data_paths(
         if debug and len(image_paths) >= 5 * len(data_paths):
             break
 
+    print(f"Found {len(image_paths)} images, {len(cts_paths)} CTs, and {len(masks_paths)} masks.")
+
     return image_paths, cts_paths, masks_paths
 
 def split_data(
     data: List[dict],
-    train_split: float = 0.8,
-    val_split: float = 0.1,
-    test_split: float = 0.1,
+    train_split: float = 0.7,
+    val_split: float = 0.15,
+    test_split: float = 0.15,
     random_seed: int = 42
 ) -> Tuple[List[dict], List[dict], List[dict]]:
     """
