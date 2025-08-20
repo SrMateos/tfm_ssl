@@ -153,13 +153,13 @@ class Trainer:
         val_ds = CacheDataset(
             data=val_data,
             transform=get_vae_val_transforms(patch_size=self.patch_size),
-            cache_rate=1,
+            cache_rate=0.7,
         )
 
         test_ds = CacheDataset(
             data=test_data,
             transform=get_vae_val_transforms(patch_size=self.patch_size),
-            cache_rate=1,
+            cache_rate=0,
         )
 
         self.val_transforms = val_ds.transform
