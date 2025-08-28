@@ -16,7 +16,7 @@ training:
   kl_annealing_cycles: 4
   kl_annealing_ratio: 0.5
   warmup_epochs: 5
-  val_interval: 10
+  val_interval: 20
   save_interval: 20
 
 # Data settings
