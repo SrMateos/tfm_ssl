@@ -16,11 +16,11 @@ from monai.data import PersistentDataset, DataLoader
 from monai.inferers import sliding_window_inference
 from monai.losses import PatchAdversarialLoss, PerceptualLoss, SSIMLoss
 from monai.visualize import matshow3d
-from monai.networks.nets import AutoencoderKL, PatchDiscriminator
+from monai.networks.nets import PatchDiscriminator
+from src.networks.autoencoder_kl_sigmoid import AutoencoderKLSigmoid
 from torch.nn import L1Loss
 from tqdm import tqdm
 import numpy as np
-from zmq import EVENT_CLOSE_FAILED
 
 from src.constants import ALL_TASK1, ALL_TASKS
 from src.data_handling import (
@@ -193,7 +193,7 @@ class Trainer:
               f", validation samples: {len(val_data)}, test samples: {len(test_data)}")
 
     def _setup_models(self):
-        self.autoencoder = AutoencoderKL(
+        self.autoencoder = AutoencoderKLSigmoid(
             spatial_dims=3,
             in_channels=1,
             out_channels=1,
@@ -225,7 +225,7 @@ class Trainer:
             spatial_dims=3,
             network_type="radimagenet_resnet50",
             is_fake_3d=True,
-            fake_3d_ratio=0.25,
+            fake_3d_ratio=1.0,
         ).to(self.device)
         self.ssim_loss = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7).to(self.device)
         self.focal_frequency_loss = FFL3D().to(self.device)

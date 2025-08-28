@@ -111,7 +111,7 @@ def get_vae_post_transforms(val_tf):
             transform=val_tf,
             orig_keys=["image", "mask"],
             meta_keys=["image_meta_dict", "mask_meta_dict"],
-            nearest_interp=False,
+            nearest_interp=[False, True],
         ),
         # ground-truth
         Invertd(
