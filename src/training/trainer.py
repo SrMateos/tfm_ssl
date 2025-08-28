@@ -189,6 +189,8 @@ class Trainer:
         mlflow.log_param("train_dataset_size", len(train_data))
         mlflow.log_param("val_dataset_size", len(val_data))
         mlflow.log_param("test_dataset_size", len(test_data))
+        print(f"Number of training samples: {len(train_data)}"
+              f", validation samples: {len(val_data)}, test samples: {len(test_data)}")
 
     def _setup_models(self):
         self.autoencoder = AutoencoderKL(
