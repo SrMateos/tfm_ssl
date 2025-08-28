@@ -8,9 +8,9 @@ training:
   batch_size: 8
   learning_rate: 1e-3
   pixel_wise_weight: 1
-  perceptual_weight: 1e-4
-  ssim_weight: 1e-4
-  focal_frequency_weight: 1e-3
+  perceptual_weight: 0
+  ssim_weight: 0
+  focal_frequency_weight: 1
   adv_weight: 1e-2
   max_kl_weight: 5e-3
   kl_annealing_cycles: 4
