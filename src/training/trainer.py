@@ -259,7 +259,7 @@ class Trainer:
         loss_focal = 0.0
 
         if self.ssim_weight > 0:
-            reconstruction = reconstruction.clamp(0, 1)
+            # reconstruction = reconstruction.clamp(0, 1)
             loss_ssim = self.ssim_loss(reconstruction, images)
         if self.pixel_wise_weight > 0:
             loss_recon = self.l1_loss(reconstruction, images)
