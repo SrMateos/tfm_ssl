@@ -94,6 +94,7 @@ def get_vae_val_transforms(patch_size=(64,)*3):
             clip=True
         ),
         SpatialPadd(keys=("image", "mask"), method="symmetric", spatial_size=patch_size),
+        EnsureTyped(keys=("image", "mask"), dtype=np.float32),
     ])
 
 
@@ -104,15 +105,15 @@ def get_vae_post_transforms(val_tf):
         "image" opcional: GT en HU
     """
     return Compose([
-        # --- reconstrucción -------------------------------------------------
+        # reconstructed image and mask
         Invertd(
-            keys=["pred"],              # qué invertir
-            transform=val_tf,           # pipeline directo
-            orig_keys=["image"],        # de dónde copiar meta
-            meta_keys=["image_meta_dict"],
-            nearest_interp=False,       # bilinear
+            keys=["pred", "Mask"],
+            transform=val_tf,
+            orig_keys=["image", "mask"],
+            meta_keys=["image_meta_dict", "mask_meta_dict"],
+            nearest_interp=False,
         ),
-        # --- ground-truth (si la quieres sin normalizar) --------------------
+        # ground-truth
         Invertd(
             keys=["image"],
             transform=val_tf,
@@ -124,6 +125,5 @@ def get_vae_post_transforms(val_tf):
             keys=["pred", "image"],
             func=unnormalize,
         ),
-        # --- asegúrate de que son tensores y tienen las claves correctas ----
         EnsureTyped(keys=["pred", "image", "mask"])
     ])
