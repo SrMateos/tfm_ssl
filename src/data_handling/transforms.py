@@ -7,12 +7,12 @@ used for training and validation of the variational autoencoder.
 
 from matplotlib import transforms
 import numpy as np
-from monai.transforms import (Compose, CropForegroundd, LoadImaged,
+from monai.transforms import (Compose, LoadImaged,
                               RandAdjustContrastd, RandAffined,
-                              RandCropByPosNegLabeld, RandFlipd,
-                              RandGaussianNoised, RandSpatialCropd,
-                              ScaleIntensityRanged, SpatialPadd, ToTensord,
-                              EnsureTyped, Invertd, Lambdad)
+                              RandFlipd, RandGaussianNoised,
+                              RandSpatialCropd, ScaleIntensityRanged,
+                              SpatialPadd, EnsureTyped,
+                              Invertd, Lambdad)
 
 from src.constants import A_MAX_HU, A_MIN_HU
 
@@ -45,9 +45,9 @@ def get_vae_train_transforms(patch_size=(64,)*3):
             roi_size=patch_size,
             random_size=False,
         ),
-        RandFlipd(keys=("image", "mask"), prob=0.2, spatial_axis=0),
-        RandFlipd(keys=("image", "mask"), prob=0.2, spatial_axis=1),
-        RandFlipd(keys=("image", "mask"), prob=0.2, spatial_axis=2),
+        # RandFlip(keys=("image", "mask"), prob=0.1, spatial_axis=0),
+        # RandFlip(keys=("image", "mask"), prob=0.1, spatial_axis=1),
+        # RandFlip(keys=("image", "mask"), prob=0.1, spatial_axis=2),
         RandAffined(
             keys=("image", "mask"),
             prob=0.5,
@@ -56,10 +56,10 @@ def get_vae_train_transforms(patch_size=(64,)*3):
             mode=('bilinear', "nearest"),  # Interpolation for image
             padding_mode='border'
         ),
-        RandAdjustContrastd(keys="image", prob=0.2, gamma=(0.7, 1.3)),
+        RandAdjustContrastd(keys="image", prob=0.1, gamma=(0.7, 1.3)),
         RandGaussianNoised(
             keys="image",
-            prob=0.2,
+            prob=0.1,
             mean=0.0,
             std=0.05 * (1.0 - 0.0)  # Adjust std to normalized range
         ),
