@@ -363,9 +363,9 @@ class Trainer:
                     sw_device=self.device,
                 )
 
-                if self.config["mlflow"].get("log_images", False) and val_step == 1:
-                    self._log_validation_images(val_images, val_outputs, epoch)
-                    self._log_validation_volume(val_outputs, epoch)
+                # if self.config["mlflow"].get("log_images", False) and val_step == 1:
+                #     self._log_validation_images(val_images, val_outputs, epoch)
+                #     self._log_validation_volume(val_outputs, epoch)
 
                 batch_recon_loss = self.l1_loss(val_outputs, val_images)
                 val_recon_loss += batch_recon_loss.item()
@@ -377,6 +377,16 @@ class Trainer:
                 with allow_missing_keys_mode(self.val_transforms):
                     restored = [post_tf(val_sample) for val_sample in val_samples]
 
+                if self.config["mlflow"].get("log_images", False) and val_step == 1:
+                    # Extraemos los tensores ya de-normalizados
+                    restored_image = restored[0]["image"]
+                    restored_pred = restored[0]["pred"]
+
+                    # Pasamos los tensores de-normalizados a las funciones de logging
+                    # Asegúrate de añadir un canal y lote si es necesario para las funciones
+                    self._log_validation_images(restored_image.unsqueeze(0), restored_pred.unsqueeze(0), epoch)
+                    self._log_validation_volume(restored_pred.unsqueeze(0), epoch)
+
                 print (f"restored keys: {restored[0].keys()}")
                 print(f"type of restored: {type(restored)}")
                 print(f"length of restored: {len(restored)}")
@@ -386,6 +396,7 @@ class Trainer:
                 gt = np.squeeze(restored[0]["image"].cpu().numpy())
                 recon = np.squeeze(restored[0]["pred"].cpu().numpy())
                 mask = np.squeeze(restored[0]["mask"].cpu().numpy())
+
 
                 scores = self.image_metrics.score_patient(
                     gt_img=gt, synthetic_ct=recon, mask=mask
@@ -442,9 +453,9 @@ class Trainer:
                     sw_device=self.device,
                 )
 
-                if self.config["mlflow"].get("log_images", False):
-                    self._log_validation_volume(test_images, epoch=test_step, test=True)
-                    self._log_validation_volume(test_outputs, epoch=test_step, test=True)
+                # if self.config["mlflow"].get("log_images", False):
+                #     self._log_validation_volume(test_images, epoch=test_step, test=True)
+                #     self._log_validation_volume(test_outputs, epoch=test_step, test=True)
 
                 batch_recon_loss = self.l1_loss(test_outputs, test_images)
                 test_recon_loss += batch_recon_loss.item()
@@ -455,6 +466,13 @@ class Trainer:
 
                 with allow_missing_keys_mode(self.val_transforms):
                     restored = [post_tf(test_sample) for test_sample in test_samples]
+
+                # usamos las de-normalizadas
+                restored_image = restored[0]["image"]
+                restored_pred = restored[0]["pred"]
+                self._log_validation_volume(restored_image.unsqueeze(0), epoch=test_step, test=True, test_original=True)
+                self._log_validation_volume(restored_pred.unsqueeze(0), epoch=test_step, test=True, test_original=False)
+
 
                 gt = np.squeeze(restored[0]["image"].cpu().numpy())
                 recon = np.squeeze(restored[0]["pred"].cpu().numpy())
