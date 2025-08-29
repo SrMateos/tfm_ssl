@@ -17,6 +17,7 @@ from monai.inferers import sliding_window_inference
 from monai.losses import PatchAdversarialLoss, PerceptualLoss, SSIMLoss
 from monai.visualize import matshow3d
 from monai.networks.nets import PatchDiscriminator
+from src import losses
 from src.networks.autoencoder_kl_sigmoid import AutoencoderKLSigmoid
 from torch.nn import L1Loss
 from tqdm import tqdm
@@ -273,8 +274,12 @@ class Trainer:
         loss_g_base = (
             (self.pixel_wise_weight * loss_recon + self.ssim_weight * loss_ssim
                 + self.focal_frequency_weight * loss_focal + self.perceptual_weight * loss_perc)
-                + self.kl_weight * kl_loss
         )
+
+        # add kl loss
+        total_no_kl = loss_g_base.item()
+
+        loss_g_base += self.kl_weight * kl_loss
 
         loss_g_adv = 0.0
         if epoch >= self.warmup_epochs:
@@ -291,6 +296,7 @@ class Trainer:
 
         ret_dictionary = {
             "total": loss_g.item(),
+            "total_base": total_no_kl,
             "kl": kl_loss.item(),
             "adversarial": (
                 loss_g_adv.item()
@@ -339,7 +345,11 @@ class Trainer:
     def _validate_epoch(self, epoch):
         self.autoencoder.eval()
         val_step = 0
-        val_recon_loss = 0
+        val_losses = {
+            "total_g": 0, "pixel_wise": 0, "perceptual": 0,
+            "ssim": 0, "focal_frequency": 0, "kl": 0
+        }
+
         val_metrics = {"mae": [], "psnr": [], "ms_ssim": []}
         val_bar = tqdm(
             total=len(self.val_loader), desc="Validation", unit="step", leave=False
@@ -363,12 +373,25 @@ class Trainer:
                     sw_device=self.device,
                 )
 
-                # if self.config["mlflow"].get("log_images", False) and val_step == 1:
-                #     self._log_validation_images(val_images, val_outputs, epoch)
-                #     self._log_validation_volume(val_outputs, epoch)
+                loss_recon = self.l1_loss(val_outputs, val_images)
+                if self.perceptual_weight > 0:
+                    loss_perc = self.loss_perceptual(val_outputs.float(), val_images.float())
+                if self.ssim_weight > 0:
+                    loss_ssim = self.ssim_loss(val_outputs, val_images)
+                if self.focal_frequency_weight > 0:
+                    loss_focal = self.focal_frequency_loss(val_outputs, val_images)
 
-                batch_recon_loss = self.l1_loss(val_outputs, val_images)
-                val_recon_loss += batch_recon_loss.item()
+                val_loss_g = (
+                    (self.pixel_wise_weight * loss_recon + self.ssim_weight * loss_ssim
+                        + self.focal_frequency_weight * loss_focal + self.perceptual_weight * loss_perc
+                    )
+                )
+
+                val_losses["total_g"] += val_loss_g.item()
+                val_losses["pixel_wise"] += loss_recon.item() if self.pixel_wise_weight > 0 else 0.0
+                val_losses["perceptual"] += loss_perc.item() if self.perceptual_weight > 0 else 0.0
+                val_losses["ssim"] += loss_ssim.item() if self.ssim_weight > 0 else 0.0
+                val_losses["focal_frequency"] += loss_focal.item() if self.focal_frequency_weight > 0 else 0.0
 
                 val_batch["pred"] = val_outputs
 
@@ -413,23 +436,28 @@ class Trainer:
                 val_bar.update(1)
 
         val_bar.close()
-        avg_val_recon_loss = val_recon_loss / val_step
+        avg_val_losses = {f"val_{k}": v / val_step for k, v in val_losses.items()}
         avg_metrics = {f"val_{k}": np.mean(v) for k, v in val_metrics.items()}
 
-        mlflow.log_metrics({"val_recon_loss": avg_val_recon_loss}, step=epoch)
+        mlflow.log_metrics(avg_val_losses, step=epoch)
         mlflow.log_metrics(avg_metrics, step=epoch)
 
+        losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in avg_val_losses.items()])
         metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
         tqdm.write(
-            f"  Validation - Avg Recon Loss: {avg_val_recon_loss:.4f}, {metrics_str}"
+            f"  Validation - Avg Losses: {losses_str}, Avg Metrics: {metrics_str}"
         )
 
-        return avg_val_recon_loss
+        avg_val_loss = avg_val_losses["val_pixel_wise"]
+        return avg_val_loss
 
     def _test_epoch(self):
         self.autoencoder.eval()
         test_step = 0
-        test_recon_loss = 0
+        test_losses = {
+            "total_g": 0, "pixel_wise": 0, "perceptual": 0,
+            "ssim": 0, "focal_frequency": 0, "kl": 0
+        }
         test_metrics = {"mae": [], "psnr": [], "ms_ssim": []}
         test_bar = tqdm(
             total=len(self.test_loader), desc="Testing", unit="step", leave=False
@@ -453,12 +481,24 @@ class Trainer:
                     sw_device=self.device,
                 )
 
-                # if self.config["mlflow"].get("log_images", False):
-                #     self._log_validation_volume(test_images, epoch=test_step, test=True)
-                #     self._log_validation_volume(test_outputs, epoch=test_step, test=True)
-
-                batch_recon_loss = self.l1_loss(test_outputs, test_images)
-                test_recon_loss += batch_recon_loss.item()
+                if self.pixel_wise_weight > 0:
+                    loss_recon = self.l1_loss(test_outputs, test_images)
+                if self.perceptual_weight > 0:
+                    loss_perc = self.loss_perceptual(test_outputs.float(), test_images.float())
+                if self.ssim_weight > 0:
+                    loss_ssim = self.ssim_loss(test_outputs, test_images)
+                if self.focal_frequency_weight > 0:
+                    loss_focal = self.focal_frequency_loss(test_outputs, test_images)
+                test_loss_g = (
+                    (self.pixel_wise_weight * loss_recon + self.ssim_weight * loss_ssim
+                        + self.focal_frequency_weight * loss_focal + self.perceptual_weight * loss_perc
+                    )
+                )
+                test_losses["total_g"] += test_loss_g.item()
+                test_losses["pixel_wise"] += loss_recon.item() if self.pixel_wise_weight > 0 else 0.0
+                test_losses["perceptual"] += loss_perc.item() if self.perceptual_weight > 0 else 0.0
+                test_losses["ssim"] += loss_ssim.item() if self.ssim_weight > 0 else 0.0
+                test_losses["focal_frequency"] += loss_focal.item() if self.focal_frequency_weight > 0 else 0.0
 
                 test_batch["pred"] = test_outputs
 
@@ -470,6 +510,9 @@ class Trainer:
                 # usamos las de-normalizadas
                 restored_image = restored[0]["image"]
                 restored_pred = restored[0]["pred"]
+                # Log the middle slice of the first batch only
+                self._log_validation_images(restored_image.unsqueeze(0), restored_pred.unsqueeze(0), epoch=test_step, test=True)
+
                 self._log_validation_volume(restored_image.unsqueeze(0), epoch=test_step, test=True, test_original=True)
                 self._log_validation_volume(restored_pred.unsqueeze(0), epoch=test_step, test=True, test_original=False)
 
@@ -486,6 +529,14 @@ class Trainer:
                     f"Test Step {test_step} - MAE: {scores['mae']:.4f}, "
                     f"PSNR: {scores['psnr']:.4f}, MS-SSIM: {scores['ms_ssim']:.4f}"
                 )
+                mlflow.log_metrics({f"test_step_{test_step}_mae": scores['mae'],
+                                     f"test_step_{test_step}_psnr": scores['psnr'],
+                                     f"test_step_{test_step}_ms_ssim": scores['ms_ssim']}, step=0)
+                mlflow.log_metric(f"test_step_{test_step}_pixel_wise_loss", loss_recon.item(), step=0)
+                mlflow.log_metric(f"test_step_{test_step}_perceptual_loss", loss_perc.item(), step=0)
+                mlflow.log_metric(f"test_step_{test_step}_ssim_loss", loss_ssim.item(), step=0)
+                mlflow.log_metric(f"test_step_{test_step}_focal_frequency_loss", loss_focal.item(), step=0)
+                mlflow.log_metric(f"test_step_{test_step}_total_generator_loss", test_loss_g.item(), step=0)
 
                 for key, value in scores.items():
                     test_metrics[key].append(value)
@@ -493,21 +544,22 @@ class Trainer:
                 test_bar.update(1)
 
         test_bar.close()
-        avg_test_recon_loss = test_recon_loss / test_step
+        avg_test_losses = {k: v / test_step for k, v in test_losses.items()}
         avg_metrics = {f"test_{k}": np.mean(v) for k, v in test_metrics.items()}
 
-        mlflow.log_metrics({"test_recon_loss": avg_test_recon_loss}, step=0)
+        mlflow.log_metrics({"test_" + k: v for k, v in avg_test_losses.items()}, step=0)
         mlflow.log_metrics(avg_metrics, step=0)
 
+        losses_str = ", ".join([f"{k}: {v:.4f}" for k, v in avg_test_losses.items()])
         metrics_str = ", ".join([f"{k}: {v:.4f}" for k, v in avg_metrics.items()])
         tqdm.write(
-            f"  Test - Avg Recon Loss: {avg_test_recon_loss:.4f}, {metrics_str}"
+            f"  Test - Avg Losses: {losses_str}, Avg Metrics: {metrics_str}"
         )
 
-        return avg_test_recon_loss, avg_metrics
+        return avg_test_losses, avg_metrics
 
 
-    def _log_validation_images(self, val_images, val_outputs, epoch):
+    def _log_validation_images(self, val_images, val_outputs, epoch, test=False):
         img_slice = val_images[0, 0, :, :, val_images.shape[-1] // 2].cpu().numpy()
         recon_slice = (
             val_outputs[0, 0, :, :, val_outputs.shape[-1] // 2].cpu().numpy()
@@ -521,7 +573,11 @@ class Trainer:
         axes[1].set_title("Reconstruction Slice")
         axes[1].axis("off")
         plt.tight_layout()
-        mlflow.log_figure(fig, f"validation_image_epoch_{epoch+1}.png")
+        if not test:
+            file_name = f"validation_image_epoch_{epoch+1}.png"
+        else:
+            file_name = f"test_image_epoch_{epoch}.png"
+        mlflow.log_figure(fig, file_name)
         plt.close(fig)
 
     def _log_validation_volume(self, val_outputs, epoch=None, test=False, test_original=False):
@@ -716,17 +772,11 @@ class Trainer:
                 self._save_checkpoint(epoch)
 
         # Test
-        test_recon_loss, test_metrics = self._test_epoch()
-        mlflow.log_metrics({"test_recon_loss": test_recon_loss}, step=0)
-        mlflow.log_metrics(test_metrics, step=0)
+        test_losses, test_metrics = self._test_epoch()
 
-        tqdm.write(f"Test Recon Loss: {test_recon_loss:.4f}")
+        tqdm.write(f"Test Recon Loss: {test_losses:.4f}")
         for key, value in test_metrics.items():
             tqdm.write(f"Test {key}: {value:.4f}")
-
-        # Log final models
-        mlflow.log_metric("final_test_recon_loss", test_recon_loss)
-        mlflow.log_metrics(test_metrics, step=0)
 
         # Save final models
         mlflow.log_metric("final_epoch", self.num_epochs)
