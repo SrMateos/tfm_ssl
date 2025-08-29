@@ -10,7 +10,7 @@ training:
   pixel_wise_weight: 0
   perceptual_weight: 1
   ssim_weight: 1
-  focal_frequency_weight: 0
+  focal_frequency_weight: 1
   adv_weight: 1e-2
   max_kl_weight: 1e-4
   kl_annealing_cycles: 4

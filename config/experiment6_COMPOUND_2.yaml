@@ -13,8 +13,8 @@ training:
   focal_frequency_weight: 0
   adv_weight: 1e-2
   max_kl_weight: 1e-4
-  kl_annealing_cycles: 4
-  kl_annealing_ratio: 0.5
+  kl_annealing_cycles: 2
+  kl_annealing_ratio: 0.75
   warmup_epochs: 5
   val_interval: 20
   save_interval: 20
