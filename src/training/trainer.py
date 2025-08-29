@@ -225,7 +225,7 @@ class Trainer:
             spatial_dims=3,
             network_type="radimagenet_resnet50",
             is_fake_3d=True,
-            fake_3d_ratio=0.3,
+            fake_3d_ratio=0.25,
         ).to(self.device)
         self.ssim_loss = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7).to(self.device)
         self.focal_frequency_loss = FFL3D().to(self.device)
