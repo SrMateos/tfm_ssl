@@ -29,7 +29,7 @@ data:
 
 # Inference settings
 inference:
-  sw_batch_size: 2
+  sw_batch_size: 12
   overlap: 0.75
   mode: "gaussian"
 
