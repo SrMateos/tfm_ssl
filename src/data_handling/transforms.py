@@ -107,7 +107,7 @@ def get_vae_post_transforms(val_tf):
     return Compose([
         # reconstructed image and mask
         Invertd(
-            keys=["pred", "Mask"],
+            keys=["pred", "mask"],
             transform=val_tf,
             orig_keys=["image", "mask"],
             meta_keys=["image_meta_dict", "mask_meta_dict"],
