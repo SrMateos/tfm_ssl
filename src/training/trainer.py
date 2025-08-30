@@ -231,7 +231,6 @@ class Trainer:
         self.ssim_loss = SSIMLoss(spatial_dims=3, data_range=1.0, win_size=7).to(self.device)
         self.focal_frequency_loss = FFL3D().to(self.device)
         self.adv_loss = PatchAdversarialLoss(criterion="hinge").to(self.device)
-        self.adv_loss.real_label = 0.9
         self.kl_loss = KLLoss().to(self.device)
 
     def _setup_optimizers(self):
