@@ -372,6 +372,11 @@ class Trainer:
                     sw_device=self.device,
                 )
 
+                loss_recon = 0.0
+                loss_perc = 0.0
+                loss_ssim = 0.0
+                loss_focal = 0.0
+
                 loss_recon = self.l1_loss(val_outputs, val_images)
                 if self.perceptual_weight > 0:
                     loss_perc = self.loss_perceptual(val_outputs.float(), val_images.float())
@@ -480,6 +485,11 @@ class Trainer:
                     sw_device=self.device,
                 )
 
+                loss_recon = 0.0
+                loss_perc = 0.0
+                loss_ssim = 0.0
+                loss_focal = 0.0
+
                 if self.pixel_wise_weight > 0:
                     loss_recon = self.l1_loss(test_outputs, test_images)
                 if self.perceptual_weight > 0:
@@ -531,10 +541,10 @@ class Trainer:
                 mlflow.log_metrics({f"test_step_{test_step}_mae": scores['mae'],
                                      f"test_step_{test_step}_psnr": scores['psnr'],
                                      f"test_step_{test_step}_ms_ssim": scores['ms_ssim']}, step=0)
-                mlflow.log_metric(f"test_step_{test_step}_pixel_wise_loss", loss_recon.item(), step=0)
-                mlflow.log_metric(f"test_step_{test_step}_perceptual_loss", loss_perc.item(), step=0)
-                mlflow.log_metric(f"test_step_{test_step}_ssim_loss", loss_ssim.item(), step=0)
-                mlflow.log_metric(f"test_step_{test_step}_focal_frequency_loss", loss_focal.item(), step=0)
+                mlflow.log_metric(f"test_step_{test_step}_pixel_wise_loss", loss_recon.item() if self.pixel_wise_weight > 0 else 0.0, step=0)
+                mlflow.log_metric(f"test_step_{test_step}_perceptual_loss", loss_perc.item() if self.perceptual_weight > 0 else 0.0, step=0)
+                mlflow.log_metric(f"test_step_{test_step}_ssim_loss", loss_ssim.item() if self.ssim_weight > 0 else 0.0, step=0)
+                mlflow.log_metric(f"test_step_{test_step}_focal_frequency_loss", loss_focal.item() if self.focal_frequency_weight > 0 else 0.0, step=0)
                 mlflow.log_metric(f"test_step_{test_step}_total_generator_loss", test_loss_g.item(), step=0)
 
                 for key, value in scores.items():
@@ -773,19 +783,11 @@ class Trainer:
         # Test
         test_losses, test_metrics = self._test_epoch()
 
-        tqdm.write(f"Test Recon Loss: {test_losses:.4f}")
-        for key, value in test_metrics.items():
-            tqdm.write(f"Test {key}: {value:.4f}")
-
-        # Save final models
-        mlflow.log_metric("final_epoch", self.num_epochs)
-        mlflow.log_metric("final_val_recon_loss", best_val_metric)
-
+        # End of Training
         tqdm.write("Saving final models...")
         mlflow.pytorch.log_model(self.autoencoder, "final_autoencoder_model")
         mlflow.pytorch.log_model(self.discriminator, "final_discriminator_model")
 
-        # End of Training
         final_autoencoder_path = "final_autoencoder_model.pth"
         final_discriminator_path = "final_discriminator_model.pth"
 
@@ -795,8 +797,17 @@ class Trainer:
         mlflow.log_artifact(final_autoencoder_path, artifact_path="models")
         mlflow.log_artifact(final_discriminator_path, artifact_path="models")
 
-        mlflow.pytorch.log_model(self.autoencoder, "autoencoder_model")
-        mlflow.pytorch.log_model(self.discriminator, "discriminator_model")
+        str_losses = ", ".join([f"{k}: {v:.4f}" for k, v in test_losses.items()])
+        str_metrics = ", ".join([f"{k}: {v:.4f}" for k, v in test_metrics.items()])
+
+        tqdm.write(f"Final Test Results - Losses: {str_losses}")
+        tqdm.write(f"Final Test Results - Metrics: {str_metrics}")
+        for key, value in test_metrics.items():
+            tqdm.write(f"Test {key}: {value:.4f}")
+
+        # Save final models
+        mlflow.log_metric("final_epoch", self.num_epochs)
+        mlflow.log_metric("final_val_recon_loss", best_val_metric)
 
         mlflow.end_run()
         print("Training finished.")
