@@ -50,7 +50,7 @@ def get_vae_train_transforms(patch_size=(64,)*3):
         # RandFlip(keys=("image", "mask"), prob=0.1, spatial_axis=2),
         RandAffined(
             keys=("image", "mask"),
-            prob=0.5,
+            prob=0.1,
             rotate_range=(np.pi/12, np.pi/12, np.pi/12),  # Slight rotations
             scale_range=(0.1, 0.1, 0.1),  # Slight scaling
             mode=('bilinear', "nearest"),  # Interpolation for image

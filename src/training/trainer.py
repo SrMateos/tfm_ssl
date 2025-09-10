@@ -17,7 +17,6 @@ from monai.inferers import sliding_window_inference
 from monai.losses import PatchAdversarialLoss, PerceptualLoss, SSIMLoss
 from monai.visualize import matshow3d
 from monai.networks.nets import PatchDiscriminator
-from src import losses
 from src.networks.autoencoder_kl_sigmoid import AutoencoderKLSigmoid
 from torch.nn import L1Loss
 from tqdm import tqdm
@@ -36,6 +35,13 @@ from src.metrics.image_metrics import ImageMetrics
 from src.utils.mlflow_utils import setup_mlflow, log_config
 from monai.transforms.utils import allow_missing_keys_mode
 from monai.data import decollate_batch
+from monai.utils import set_determinism
+
+torch.manual_seed(42)
+np.random.seed(42)
+set_determinism(seed=42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(42)
 
 class Trainer:
     def __init__(self, config):

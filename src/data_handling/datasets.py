@@ -47,9 +47,6 @@ def get_data_paths(
         for i, subdirectory in enumerate(subdirs):
             if "overview" in str(subdirectory):
                 continue
-            if debug and len(image_paths) >= 5 * len(data_paths):
-                # Adjust debug limit if multiple main paths
-                break
 
             image_name = "mr.mha" if task1 else "cbct.mha"
 
@@ -57,12 +54,17 @@ def get_data_paths(
             cts_paths.append(str(Path(subdirectory / "ct.mha")))
             masks_paths.append(str(Path(subdirectory / "mask.mha")))
 
-        if debug and len(image_paths) >= 5 * len(data_paths):
-            break
 
     print(f"Found {len(image_paths)} images, {len(cts_paths)} CTs, and {len(masks_paths)} masks.")
 
+    if debug:
+        image_paths = image_paths[:10]
+        cts_paths = cts_paths[:10]
+        masks_paths = masks_paths[:10]
+        print("Debug mode: using only 5 samples per data path.")
+
     return image_paths, cts_paths, masks_paths
+
 
 def split_data(
     data: List[dict],
@@ -72,7 +74,7 @@ def split_data(
     random_seed: int = 42
 ) -> Tuple[List[dict], List[dict], List[dict]]:
     """
-    Split data into training, validation, and test sets.
+    Split data into training, validation, and test sets while balancing classes.
 
     Args:
         data: List of data dictionaries
@@ -80,11 +82,11 @@ def split_data(
         val_split: Fraction of data to use for validation
         test_split: Fraction of data to use for testing
         random_seed: Random seed for reproducibility
-
     Returns:
         Tuple containing (train_data, val_data, test_data)
     """
     import random
+    from collections import defaultdict
 
     # Validate splits
     total = train_split + val_split + test_split
@@ -94,18 +96,37 @@ def split_data(
     # Set random seed for reproducibility
     random.seed(random_seed)
 
-    # Shuffle data
-    shuffled = data.copy()
-    random.shuffle(shuffled)
-    n = len(shuffled)
+    # Group data by class based on path
+    class_groups = defaultdict(list)
+    for item in data:
+        path = item['image']
+        if 'AB' in path:
+            class_groups['AB'].append(item)
+        elif 'HN' in path:
+            class_groups['HN'].append(item)
+        elif 'TH' in path:
+            class_groups['TH'].append(item)
+        else:
+            print(f"Warning: Unrecognized class in path {path}. Skipping.")
 
-    # Compute split indices
-    train_end = int(n * train_split)
-    val_end = train_end + int(n * val_split)
+    train_data, val_data, test_data = [], [], []
 
-    # Slice data
-    train_data = shuffled[:train_end]
-    val_data = shuffled[train_end:val_end]
-    test_data = shuffled[val_end:]
+    # Split each class group and combine
+    for class_name, items in class_groups.items():
+        random.shuffle(items)
+        n = len(items)
 
+        train_end = int(n * train_split)
+        val_end = train_end + int(n * val_split)
+
+        train_data.extend(items[:train_end])
+        val_data.extend(items[train_end:val_end])
+        test_data.extend(items[val_end:])
+        print(f"Class {class_name}: {n} samples split into {len(items[:train_end])} train, {len(items[train_end:val_end])} val, {len(items[val_end:])} test.")
+
+    # Shuffle final splits
+    random.shuffle(train_data)
+    random.shuffle(val_data)
+    random.shuffle(test_data)
+    print(f"Total: {len(train_data)} train, {len(val_data)} val, {len(test_data)} test.")
     return train_data, val_data, test_data
